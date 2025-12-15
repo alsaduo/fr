@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AlsaDuo – Experience Interactive</title>
+    <!-- Premium fonts -->
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Global styles */
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        scroll-behavior: smooth;
+        overflow-x: hidden;
+        background: #f5efe6;
+        color: #063c3c;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      }
+      /* Canvas fills viewport and stays pinned */
+      #webgl {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 0;
+      }
+      /* Hidden loader overlay (quick fade) */
+      #preloader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        background: #f5efe6;
+        z-index: 50;
+        transition: opacity 0.6s ease;
+      }
+      #preloader.fade {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #preloader img {
+        width: 160px;
+        height: auto;
+        margin-bottom: 1rem;
+      }
+      #preloader .brand {
+        font-family: "Playfair Display", serif;
+        font-size: 2rem;
+        letter-spacing: 0.06rem;
+      }
+      #preloader .spinner {
+        width: 44px;
+        height: 44px;
+        margin-top: 1rem;
+        border: 3px solid rgba(6, 60, 60, 0.25);
+        border-top-color: #063c3c;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      /* Section layout */
+      .panel {
+        position: relative;
+        width: 100%;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 10%;
+        z-index: 5;
+      }
+      .panel-content {
+        max-width: 700px;
+        text-align: left;
+      }
+      .panel h1,
+      .panel h2 {
+        font-family: "Playfair Display", serif;
+        margin: 0;
+        line-height: 1.2;
+      }
+      .panel h1 { font-size: clamp(2rem, 6vw, 4rem); }
+      .panel h2 { font-size: clamp(1.5rem, 4.5vw, 3rem); }
+      .panel p {
+        font-size: clamp(1rem, 2vw, 1.25rem);
+        line-height: 1.5;
+        margin-top: 0.75rem;
+        max-width: 600px;
+      }
+      /* Colors per panel */
+      .panel-1 { align-items: flex-start; justify-content: flex-start; padding-top: 20vh; }
+      .panel-2 { align-items: center; justify-content: flex-start; }
+      .panel-3 { align-items: flex-end; justify-content: flex-start; padding-bottom: 20vh; }
+      /* Subtle overlay for readability */
+      .overlay-bg {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at center, rgba(245,239,230,0.5), rgba(245,239,230,0) 70%);
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Preloader (hidden quickly) -->
+    <div id="preloader">
+      <img src="logoalsaduo.png" alt="AlsaDuo" />
+      <div class="brand">AlsaDuo</div>
+      <div class="spinner" aria-hidden="true"></div>
+    </div>
+
+    <!-- Three.js Canvas -->
+    <canvas id="webgl"></canvas>
+
+    <!-- Content panels -->
+    <section class="panel panel-1">
+      <div class="panel-content">
+        <h1>Bienvenue chez AlsaDuo</h1>
+        <p>Blablabla… découvrez notre univers, avec son emblématique nid perché.</p>
+      </div>
+    </section>
+    <section class="panel panel-2">
+      <div class="panel-content">
+        <h2>Notre histoire</h2>
+        <p>Blablabla… en descendant, la tour se révèle et dévoile son héritage.</p>
+      </div>
+    </section>
+    <section class="panel panel-3">
+      <div class="panel-content">
+        <h2>Nos racines</h2>
+        <p>Blablabla… arrivez au pied de la tour, et plongez dans nos traditions.</p>
+      </div>
+    </section>
+
+    <script type="module">
+      // Preloader fade when ready
+      const preloader = document.getElementById('preloader');
+      function hidePreloader() {
+        preloader.classList.add('fade');
+        setTimeout(() => { preloader.style.display = 'none'; }, 600);
+      }
+
+      // Scroll-driven values
+      let scrollProgress = 0;
+      // Parallax pointer tracking
+      let targetX = 0, targetY = 0;
+      let currentX = 0, currentY = 0;
+
+      // Import THREE with fallback
+      async function importThree() {
+        const sources = [
+          {
+            three: 'https://unpkg.com/three@0.160.0/build/three.module.js',
+            loader: 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js',
+          },
+          {
+            three: 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
+            loader: 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js',
+          },
+          {
+            three: 'https://esm.sh/three@0.160.0',
+            loader: 'https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js',
+          },
+        ];
+        for (const src of sources) {
+          try {
+            const THREE = await import(src.three);
+            const mod = await import(src.loader);
+            return { THREE, GLTFLoader: mod.GLTFLoader };
+          } catch (_) {
+            // try next
+          }
+        }
+        throw new Error('Impossible de charger Three.js');
+      }
+
+      // Helper
+      const lerp = (a, b, t) => a + (b - a) * t;
+
+      async function init() {
+        const { THREE, GLTFLoader } = await importThree();
+        // Scene
+        const scene = new THREE.Scene();
+        // Camera
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        // Initial camera position (stage 1 viewpoint)
+        camera.position.set(0, 2.0, 4.5);
+        // Renderer
+        const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('webgl'), antialias: true, alpha: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        // Lights
+        const hemi = new THREE.HemisphereLight(0xffffff, 0xdcd4c3, 1.0);
+        hemi.position.set(0, 1, 0);
+        scene.add(hemi);
+        const dir = new THREE.DirectionalLight(0xffffff, 0.85);
+        dir.position.set(5, 10, 7.5);
+        scene.add(dir);
+        const fill = new THREE.DirectionalLight(0xfff1dc, 0.25);
+        fill.position.set(-5, 3, -4);
+        scene.add(fill);
+        // Load GLB
+        const loader = new GLTFLoader();
+        const candidateUrls = ['minaret_model.glb', 'minaret%203d%20model-2.glb', 'minaret 3d model-2.glb'];
+        let gltf;
+        for (const url of candidateUrls) {
+          try {
+            gltf = await loader.loadAsync(url);
+            break;
+          } catch (_) { /* continue */ }
+        }
+        if (!gltf) {
+          console.error('GLB introuvable');
+        }
+        const model = gltf.scene;
+        model.traverse((child) => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        // Compute bounding box and scale
+        const box = new THREE.Box3().setFromObject(model);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z) || 1;
+        const baseScale = 2.4 / maxDim;
+        model.scale.setScalar(baseScale);
+        // Center the model initially
+        box.setFromObject(model);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        model.position.sub(center);
+        // Adjust to display top nicely in stage1
+        model.position.y += size.y * baseScale * 0.5;
+        scene.add(model);
+        hidePreloader();
+        // Handle resize
+        window.addEventListener('resize', () => {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        // Pointer move
+        window.addEventListener('pointermove', (e) => {
+          const x = (e.clientX / window.innerWidth) * 2 - 1;
+          const y = (e.clientY / window.innerHeight) * 2 - 1;
+          targetX = x;
+          targetY = y;
+        }, { passive: true });
+        // Scroll update
+        window.addEventListener('scroll', () => {
+          const scrollTop = window.scrollY;
+          const maxHeight = document.body.scrollHeight - window.innerHeight;
+          scrollProgress = maxHeight > 0 ? scrollTop / maxHeight : 0;
+        }, { passive: true });
+        // Stage definitions
+        const stage1Start = 0.0;
+        const stage1End = 0.33;
+        const stage2Start = 0.33;
+        const stage2End = 0.66;
+        const stage3Start = 0.66;
+        const stage3End = 1.0;
+        // Values for transitions
+        const stage1 = {
+          camPos: new THREE.Vector3(0, 2.0, 4.5),
+          lookAt: new THREE.Vector3(0, 2.0, 0),
+          scale: 1.0,
+          modelPos: new THREE.Vector3(0, model.position.y, 0),
+          rotation: 0,
+        };
+        const stage2 = {
+          camPos: new THREE.Vector3(0, 1.8, 4.0),
+          lookAt: new THREE.Vector3(0, 1.8, 0),
+          scale: 1.4,
+          modelPos: new THREE.Vector3(1.5, model.position.y - 0.3, 0),
+          rotation: Math.PI * 1.0,
+        };
+        const stage3 = {
+          camPos: new THREE.Vector3(0, 0.7, 4.0),
+          lookAt: new THREE.Vector3(0, 0.0, 0),
+          scale: 1.0,
+          modelPos: new THREE.Vector3(0, -size.y * baseScale * 0.5, 0),
+          rotation: Math.PI * 2.0,
+        };
+        // Animation loop
+        function animate() {
+          requestAnimationFrame(animate);
+          // Smooth parallax
+          currentX = lerp(currentX, targetX, 0.05);
+          currentY = lerp(currentY, targetY, 0.05);
+          // Determine stage
+          let camTarget = new THREE.Vector3();
+          let lookTarget = new THREE.Vector3();
+          let scaleTarget;
+          let modelTargetPos = new THREE.Vector3();
+          let rotTarget;
+          if (scrollProgress < stage2Start) {
+            const t = (scrollProgress - stage1Start) / (stage1End - stage1Start);
+            // Within stage1: slight parallax + fixed stage1 values
+            camTarget.lerpVectors(stage1.camPos, stage1.camPos, t);
+            lookTarget.lerpVectors(stage1.lookAt, stage1.lookAt, t);
+            scaleTarget = lerp(stage1.scale, stage1.scale, t);
+            modelTargetPos.lerpVectors(stage1.modelPos, stage1.modelPos, t);
+            rotTarget = lerp(stage1.rotation, stage1.rotation, t);
+          } else if (scrollProgress >= stage2Start && scrollProgress < stage3Start) {
+            const t = (scrollProgress - stage2Start) / (stage2End - stage2Start);
+            camTarget.lerpVectors(stage2.camPos, stage2.camPos, t);
+            lookTarget.lerpVectors(stage2.lookAt, stage2.lookAt, t);
+            scaleTarget = lerp(stage1.scale, stage2.scale, t);
+            modelTargetPos.lerpVectors(stage1.modelPos, stage2.modelPos, t);
+            rotTarget = lerp(stage1.rotation, stage2.rotation, t);
+          } else {
+            const t = (scrollProgress - stage3Start) / (stage3End - stage3Start);
+            camTarget.lerpVectors(stage3.camPos, stage3.camPos, t);
+            lookTarget.lerpVectors(stage3.lookAt, stage3.lookAt, t);
+            scaleTarget = lerp(stage2.scale, stage3.scale, t);
+            modelTargetPos.lerpVectors(stage2.modelPos, stage3.modelPos, t);
+            rotTarget = lerp(stage2.rotation, stage3.rotation, t);
+          }
+          // Apply parallax offsets to camera
+          const offsetX = currentX * 0.6;
+          const offsetY = currentY * 0.5;
+          camera.position.set(
+            camTarget.x + offsetX,
+            camTarget.y + offsetY,
+            camTarget.z
+          );
+          camera.lookAt(lookTarget.x, lookTarget.y + offsetY * 0.5, lookTarget.z);
+          // Update model transformations
+          model.scale.setScalar(baseScale * scaleTarget);
+          model.position.set(modelTargetPos.x, modelTargetPos.y, modelTargetPos.z);
+          model.rotation.y = rotTarget;
+          // Render
+          renderer.render(scene, camera);
+        }
+        animate();
+      }
+      init().catch((err) => { console.error(err); hidePreloader(); });
+    </script>
+  </body>
+</html>
